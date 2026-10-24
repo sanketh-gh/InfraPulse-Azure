@@ -1,0 +1,75 @@
+name: InfraPulse-Azure Build and Validation
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-22.04
+    env:
+      # Terraform validate needs a syntactically valid subscription ID, not credentials.
+      TF_VAR_subscription_id: "00000000-0000-0000-0000-000000000000"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4 # v4.2.2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5 # v5.6.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install Python validation tools
+        run: python -m pip install --requirement requirements-dev.txt
+
+      - name: Validate Python syntax
+        run: python -m compileall -q app
+
+      - name: Python lint (Ruff)
+        run: ruff check app
+
+      - name: Python format check (Ruff)
+        run: ruff format --check app
+
+      - name: Pytest
+        run: pytest -q app
+
+      - name: Install ShellCheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes shellcheck
+
+      - name: ShellCheck
+        run: shellcheck scripts/*.sh
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3 # v3.1.2
+        with:
+          terraform_version: 1.10.5
+          terraform_wrapper: false
+
+      - name: Terraform format
+        run: terraform -chdir=terraform fmt -check -recursive
+
+      - name: Terraform init
+        run: terraform -chdir=terraform init -backend=false -input=false
+
+      - name: Terraform validate
+        run: terraform -chdir=terraform validate -no-color
+
+      - name: Checkov
+        run: checkov --directory terraform --quiet --skip-download
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Local HTTP smoke test
+        run: bash scripts/smoke_test.sh

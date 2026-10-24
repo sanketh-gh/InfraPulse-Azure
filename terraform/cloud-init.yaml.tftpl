@@ -1,0 +1,37 @@
+#cloud-config
+package_update: true
+packages:
+  - python3
+  - curl
+
+write_files:
+  - path: /opt/infrapulse/server.py
+    owner: root:root
+    permissions: '0644'
+    encoding: b64
+    content: ${app_content}
+  - path: /etc/systemd/system/infrapulse.service
+    owner: root:root
+    permissions: '0644'
+    encoding: b64
+    content: ${service_content}
+  - path: /etc/systemd/system/infrapulse-health.service
+    owner: root:root
+    permissions: '0644'
+    encoding: b64
+    content: ${health_service_content}
+  - path: /etc/systemd/system/infrapulse-health.timer
+    owner: root:root
+    permissions: '0644'
+    encoding: b64
+    content: ${health_timer_content}
+  - path: /usr/local/sbin/infrapulse-healthcheck
+    owner: root:root
+    permissions: '0755'
+    encoding: b64
+    content: ${healthcheck_content}
+
+runcmd:
+  - [systemctl, daemon-reload]
+  - [systemctl, enable, --now, infrapulse.service]
+  - [systemctl, enable, --now, infrapulse-health.timer]

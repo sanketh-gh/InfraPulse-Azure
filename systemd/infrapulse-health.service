@@ -1,0 +1,7 @@
+[Unit]
+Description=Check InfraPulse HTTP health and restart if needed
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/infrapulse-healthcheck
