@@ -24,7 +24,7 @@ See the [architecture diagram](docs/architecture.md) and
 ## Endpoints
 
 ```text
-GET /       -> HTTP 200, Hello from PulseForge
+GET /       -> HTTP 200, Hello from InfraPulse
 GET /health -> HTTP 200, {"status":"ok"}
 other paths -> HTTP 404
 ```

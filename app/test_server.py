@@ -28,7 +28,7 @@ def test_root_returns_greeting() -> None:
     status, content_type, body = request("/")
     assert status == 200
     assert content_type.startswith("text/plain")
-    assert body == "Hello from PulseForge\n"
+    assert body == "Hello from InfraPulse\n"
 
 
 def test_health_returns_json() -> None:

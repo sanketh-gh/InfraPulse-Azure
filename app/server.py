@@ -15,7 +15,7 @@ class PulseHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
         route = urlsplit(self.path).path
         if route == "/":
-            self._send(200, "text/plain; charset=utf-8", b"Hello from PulseForge\n")
+            self._send(200, "text/plain; charset=utf-8", b"Hello from InfraPulse\n")
         elif route == "/health":
             self._send(200, "application/json", b'{"status":"ok"}\n')
         else:
