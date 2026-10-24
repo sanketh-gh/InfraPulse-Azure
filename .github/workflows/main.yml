@@ -67,7 +67,7 @@ jobs:
         run: checkov --directory terraform --quiet --skip-download
 
       - name: Gitleaks
-        uses: gitleaks/gitleaks-action@v2.3.9
+        uses: gitleaks/gitleaks-action@v3.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
