@@ -4,6 +4,19 @@ packages:
   - python3
   - curl
 
+# The systemd unit runs as this unprivileged account. Create it before
+# systemd starts the service during cloud-init.
+groups:
+  - InfraPulseUser
+
+users:
+  - default
+  - name: InfraPulseUser
+    system: true
+    shell: /usr/sbin/nologin
+    no_create_home: true
+    lock_passwd: true
+
 write_files:
   - path: /opt/infrapulse/server.py
     owner: root:root
