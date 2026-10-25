@@ -24,7 +24,9 @@ class PulseHandler(BaseHTTPRequestHandler):
         # Log only method, path, and status; never request headers or credentials.
         # Route names are safe to log; query strings can contain caller secrets.
         route_name = {"/": "root", "/health": "health"}.get(route, "unknown")
-        logging.info("request method=GET route=%s status=%d", route_name, self._last_status)
+        logging.info(
+            "request method=GET route=%s status=%d", route_name, self._last_status
+        )
 
     def _send(self, status: int, content_type: str, body: bytes) -> None:
         self._last_status = status
