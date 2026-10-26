@@ -26,7 +26,55 @@ If local curl succeeds while external curl fails, the app and local listener
 are likely healthy; investigate the NSG source CIDR, public IP association,
 subnet, or client network.
 
-The SRE golden signals are **latency, traffic, errors, and saturation**. This
-demo provides request logs and host checks, but no centralized monitoring or
-alerting. Use the signals as a troubleshooting framework without adding a
-monitoring stack to this small project.
+## Public endpoint times out
+
+The NSG permits inbound TCP 8080 only from the IPv4 CIDRs configured in
+`terraform/terraform.tfvars` as `http_source_cidrs`. A timeout commonly means
+the public IP of the client network you are using is not in that allowlist.
+
+1. From the client network where you are testing, find its public IPv4 address:
+
+   ```sh
+   curl -4 https://api.ipify.org
+   ```
+
+   If connected through a VPN, this reports the VPN's egress address. If you
+   change networks or your ISP changes your dynamic address, check it again.
+
+2. In `terraform/terraform.tfvars`, set `http_source_cidrs` to that address
+   with a `/32` suffix. For example:
+
+   ```hcl
+   http_source_cidrs = ["203.0.113.25/32"]
+   ```
+
+   Replace the example address with your own. Do not use `0.0.0.0/0` unless
+   the endpoint is intentionally open to every IPv4 address.
+
+3. From the `terraform/` directory, plan only the inbound NSG rule update:
+
+   ```sh
+   terraform plan -target=azurerm_network_security_rule.http_in
+   ```
+
+   Check that the plan changes only that rule. If it does, apply the same
+   targeted update:
+
+   ```sh
+   terraform apply -target=azurerm_network_security_rule.http_in
+   ```
+
+   Targeted Terraform operations are intended for this narrow recovery case.
+   Do not run a full `terraform apply` without reviewing its plan: other
+   pending changes, such as changed VM custom data, may replace the VM.
+
+4. Retry the public health endpoint:
+
+   ```sh
+   curl -i "http://$(terraform output -raw public_ip):8080/health"
+   ```
+
+   Expect HTTP 200 and `{"status":"ok"}`. If it still times out, continue
+   with the VM, listener, and service checks above; an allowlist mismatch is
+   only one possible cause.
+
