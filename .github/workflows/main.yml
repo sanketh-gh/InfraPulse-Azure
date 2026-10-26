@@ -51,7 +51,7 @@ jobs:
         run: shellcheck scripts/*.sh
 
       - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3 # v3.1.2
+        uses: hashicorp/setup-terraform@v4 # v3.1.2
         with:
           terraform_version: 1.10.5
           terraform_wrapper: false
