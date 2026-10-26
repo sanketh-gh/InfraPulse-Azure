@@ -1,256 +1,137 @@
-# InfraPulse Azure
+# InfraPulse
 
-This is the Azure version of InfraPulse, kept in its own project directory so
-the original AWS project remains separate. It demonstrates a small Linux VM,
-Terraform, cloud-init, systemd recovery, Azure network security, and CI
-validation using Azure services.
-
-## Architecture
-
-- Terraform creates an Azure resource group, VNet/subnet, NSG, Standard public
-  IP, NIC, and one Ubuntu Server 22.04 LTS Gen2 VM.
-- cloud-init installs the Python standard-library HTTP app and systemd units.
-- The app listens on `0.0.0.0:8080` and runs as `InfraPulseUser`.
-- systemd restarts process crashes; a timer checks `/health` and requests a
-  restart if the application health check fails.
-- Azure Run Command provides administrative scripts through the Azure VM
-  agent. The NSG has no SSH rule and does not require a paid Bastion service.
-- GitHub Actions validates the project; it does not deploy or store Azure
-  credentials.
-
-See the [architecture diagram](docs/architecture.md) and
-[outage runbook](docs/runbook.md).
-
-## Endpoints
-
-```text
-GET /       -> HTTP 200, Hello from InfraPulse
-GET /health -> HTTP 200, {"status":"ok"}
-other paths -> HTTP 404
-```
-
-## Costs and Free Tier
-
-The default VM size is `Standard_B2ats_v2`, with a 64 GiB Premium SSD OS disk.
-Microsoft currently lists B2ats v2 Linux VM hours and P6 managed disks among
-Azure free-account offers, but eligibility depends on the subscription and
-offer, and the VM SKU must have quota and capacity in the chosen region. Check
-the Azure portal's **Cost Management + Billing** and subscription quota pages
-before deploying. Azure's Free Tier offers and regional capacity can change;
-the code cannot guarantee this deployment will cost nothing. Microsoft also
-notes restrictions on some 12-month offers for accounts signed up directly
-for pay-as-you-go in India. See [Azure free services](https://azure.microsoft.com/en-us/pricing/free-services/)
-and the [free-account VM offer](https://marketplace.microsoft.com/en-us/product/microsoft.freeaccountvirtualmachine?tab=overview).
-
-The VM, Premium SSD managed disk, and Standard public IPv4 address can incur
-charges if your offer does not cover them or you exceed its limits. Data
-transfer out may also be billable. The project does not create Azure Bastion,
-NAT Gateway, Application Gateway, databases, Log Analytics workspaces, or
-centralized log ingestion. Use the [Azure pricing calculator](https://azure.microsoft.com/en-us/pricing/calculator/)
-for your subscription and region. Destroy the resources when finished.
+InfraPulse demonstrates provisioning an Azure Linux VM and configuring a small HTTP health service with Terraform, cloud-init, systemd, network controls, and CI validation.
 
 ## Prerequisites
 
-- Terraform 1.10.5 (configuration supports Terraform 1.8+)
-- Azure CLI 2.x
-- An Azure subscription with permission to create a resource group, VM,
-  managed disk, public IP, NIC, VNet, subnet, and NSG
-- A local OpenSSH public key; the private key is never uploaded
-- Python 3.12, pytest, Ruff, ShellCheck, Checkov, Gitleaks, and curl for local
-  validation (GitHub Actions installs the validation tools)
+- An Azure subscription and permission to create resource groups, virtual
+  machines, and networking resources. The Terraform identity needs Contributor
+  access to the subscription.
+- Azure CLI, Terraform 1.8 or later, Python 3.12, and ShellCheck.
+- An SSH key pair. Terraform installs the public key on the VM; the private key
+  remains on your machine. The network security group does not allow inbound
+  SSH.
+- For the full local validation suite: pytest, Ruff, Checkov, and Gitleaks.
 
-For a small personal lab, use a dedicated subscription and an Azure RBAC
-identity with Contributor rights at that subscription because Terraform
-creates the resource group. In a shared subscription, have an administrator
-create the resource group and grant the narrowest suitable role at that
-resource group instead. This project does not create Azure role assignments.
+## Setup
 
-## Repository structure
-
-```text
-app/                  Python server and endpoint tests
-terraform/            Azure infrastructure and cloud-init template
-systemd/              App service, health-check service, and timer
-scripts/              Local health-check and HTTP smoke-test scripts
-docs/                 Architecture and outage runbook
-.github/workflows/    CI validation
-```
-
-## Security and reliability controls
-
-- NSG ingress permits TCP 8080 only from required `http_source_cidrs`; SSH is
-  not exposed. Set a trusted address such as your public IPv4 `/32`.
-- Outbound internet access is limited to HTTP and HTTPS for Ubuntu packages and
-  VM agent communication.
-- Linux password authentication is disabled. Terraform requires an SSH
-  **public** key to provision the admin account, but the NSG has no TCP 22 rule.
-  Azure Run Command is the normal admin path.
-- There is no VM managed identity because the app does not call Azure APIs.
-- The OS disk uses managed Premium SSD storage; Azure encrypts managed disks at
-  rest by default. The VM enables Secure Boot and vTPM.
-- The app logs only a route category and status; it does not log credentials,
-  authorization headers, or query strings.
-- systemd runs the app as an unprivileged account with service sandboxing,
-  restart-on-failure, a restart delay, and rate limiting. A separate timer
-  provides application-level self-recovery.
-- Terraform uses Azure CLI authentication locally. CI stores no Azure secrets
-  and does not run `terraform apply`.
-
-## Deploy
-
-Sign in with Azure CLI and select the subscription you intend to use:
+Sign in and select the subscription to use:
 
 ```sh
 az login
 az account list --output table
-az account set --subscription "YOUR_SUBSCRIPTION_ID"
+az account set --subscription "SUBSCRIPTION_ID_OR_NAME"
 az account show --output table
 ```
 
-Generate an SSH key if you do not already have one. This public key is needed
-to create the Linux admin account; it does not open SSH access:
+Create an SSH key pair if needed, then copy the public key into the local
+Terraform variables file. The private key is the file without the `.pub`
+suffix; do not upload or commit it.
 
 ```sh
-ssh-keygen -t ed25519 -f ~/.ssh/infrapulse_azure -C infrapulse-azure
+ssh-keygen -t ed25519 -C "infrapulse-admin"
+cat ~/.ssh/id_ed25519.pub
 ```
 
-From this project directory, set Terraform's required values. Replace the
-example CIDR with your public IP and keep `/32` so the HTTP endpoint is limited
-to your machine:
+Create `terraform/terraform.tfvars`:
 
-```sh
-cd /Users/sankethshenoy/InfraPulse/InfraPulse-Azure
-export TF_VAR_subscription_id="$(az account show --query id --output tsv)"
-export TF_VAR_azure_region=centralindia
-export TF_VAR_http_source_cidrs='["YOUR_PUBLIC_IP/32"]'
-export TF_VAR_admin_ssh_public_key="$(cat ~/.ssh/infrapulse_azure.pub)"
+```hcl
+subscription_id      = "YOUR-AZURE-SUBSCRIPTION-UUID"
+azure_region         = "centralindia"
+http_source_cidrs    = ["YOUR_PUBLIC_IPV4/32"]
+admin_ssh_public_key = "ssh-ed25519 YOUR_PUBLIC_KEY_CONTENT"
 ```
 
-Then review and apply the Terraform plan:
+The `.gitignore` excludes `*.tfvars` and Terraform state files. Keep these
+local files out of version control.
+
+Initialize Terraform, review the proposed resources, and deploy:
 
 ```sh
 cd terraform
 terraform init
-az vm list-skus --location centralindia --size Standard_B2ats_v2 --all --output table
 terraform plan
 terraform apply
 ```
 
-Check for a valid VM size/quota in Central India before approving. If that SKU is
-not available to your subscription, choose an eligible, available `vm_size`
-with `-var='vm_size=...'` and confirm its cost in the plan and Azure pricing
-calculator. `centralindia` is the selected deployment region; capacity, quota, and
-pricing can vary by region.
-
-After apply, test the web endpoints:
+After deployment, check the public health endpoint:
 
 ```sh
-terraform output
+terraform output -raw health_url
 curl "$(terraform output -raw health_url)"
-curl "http://$(terraform output -raw public_ip):8080/"
 ```
 
-## Admin access and operations
+The service listens on IPv4 TCP port 8080. Allow cloud-init a few minutes to
+finish after the VM is created. The local systemd timer checks `/health` once a
+minute and requests a restart if the service fails. Azure Monitor records VM
+availability alerts in the portal; no email notifications are configured.
 
-Azure Run Command executes scripts on the Linux VM through the Azure VM agent;
-it is not an interactive shell. The Azure identity needs the VM Run Command
-permission (for example, Virtual Machine Contributor at the resource group).
-Microsoft documents the [Run Command workflow](https://learn.microsoft.com/en-us/azure/virtual-machines/linux/run-command-managed).
+## Validation
 
-Run a health check or inspect the service:
+From the repository root, create a Python environment and install the project’s
+test and lint dependencies:
 
 ```sh
-az vm run-command invoke \
-  --resource-group "$(terraform output -raw resource_group_name)" \
-  --name "$(terraform output -raw vm_name)" \
-  --command-id RunShellScript \
-  --scripts "systemctl status infrapulse; curl -i http://localhost:8080/health"
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements-dev.txt
 ```
 
-For logs and host resources:
+Run the application and infrastructure checks:
 
 ```sh
-az vm run-command invoke \
-  --resource-group "$(terraform output -raw resource_group_name)" \
-  --name "$(terraform output -raw vm_name)" \
-  --command-id RunShellScript \
-  --scripts "journalctl -u infrapulse --since '30 minutes ago'; ss -lntp; free -h; df -h"
+python -m compileall -q app
+ruff check app
+pytest -q app
+shellcheck scripts/*.sh
+terraform -chdir=terraform fmt -check -recursive
+terraform -chdir=terraform init -backend=false -input=false
+terraform -chdir=terraform validate
+checkov --directory terraform --quiet --skip-download
+gitleaks detect --source . --no-git
+bash scripts/smoke_test.sh
 ```
 
-Test process recovery by killing only the service's main process:
-
-```sh
-az vm run-command invoke \
-  --resource-group "$(terraform output -raw resource_group_name)" \
-  --name "$(terraform output -raw vm_name)" \
-  --command-id RunShellScript \
-  --scripts "systemctl kill --kill-whom=main --signal=SIGKILL infrapulse.service; sleep 5; systemctl is-active infrapulse.service"
-```
-
-Test the health-timer recovery path:
-
-```sh
-az vm run-command invoke \
-  --resource-group "$(terraform output -raw resource_group_name)" \
-  --name "$(terraform output -raw vm_name)" \
-  --command-id RunShellScript \
-  --scripts "systemctl stop infrapulse.service; sleep 70; systemctl is-active infrapulse.service; journalctl -u infrapulse-health --since '5 minutes ago'"
-```
-
-Reboot and verify startup:
-
-```sh
-az vm restart \
-  --resource-group "$(terraform output -raw resource_group_name)" \
-  --name "$(terraform output -raw vm_name)"
-```
-
-Then rerun the service status command. Verify unwanted ports in the NSG; TCP
-22 should be denied while TCP 8080 is allowed from your configured CIDR.
-
-## CI/CD
-
-The workflow runs on pushes and pull requests with `contents: read`. It checks
-Python syntax, Ruff, pytest, ShellCheck, Terraform formatting/init/validation,
-Checkov, Gitleaks, and a local HTTP smoke test. It does not sign in to Azure or
-deploy resources. If automatic deployment is added later, use GitHub OIDC
-federation to a narrowly scoped Azure federated identity, and keep approval
-before infrastructure changes.
-
-## Troubleshooting
-
-- **External curl fails, local curl works:** inspect the NSG's HTTP source CIDR,
-  NIC/subnet association, public IP, and client network.
-- **VM Run Command fails:** confirm the VM is running, the Azure VM agent is
-  healthy, and your Azure RBAC role permits `Microsoft.Compute/virtualMachines/runCommand/write`.
-- **No local listener:** check `systemctl status infrapulse`, the service
-  journal, and cloud-init output with `journalctl -u cloud-final`.
-- **Health timer reports failures:** run local curl and inspect both the app
-  and health-unit journals.
-- **VM creation reports SKU/quota/capacity errors:** check Subscription →
-  Usage + quotas for Central India and select an available size only after
-  checking its cost and Free Tier status.
+The smoke test starts the HTTP service locally and checks `/health`. Terraform
+formatting, initialization, and validation do not create Azure resources. The
+GitHub Actions workflow runs code, shell, Terraform, security scan, and smoke
+checks on pushes and pull requests; it does not deploy infrastructure.
 
 ## Cleanup
 
-From the project `terraform/` directory, remove the deployment:
+From the `terraform/` directory, preview and remove the resources managed by
+the current Terraform state:
 
 ```sh
+terraform plan -destroy
 terraform destroy
 ```
 
-Review and confirm the destroy plan. Terraform removes the resource group and
-the resources it contains. Keep the local Terraform state until destruction
-finishes; it is ignored by Git and is needed to track cleanup.
+Review the destruction plan before confirming. Keep the Terraform state file
+private until cleanup is complete; it records details about the deployment.
 
-## Assumptions and limitations
+Cloud-init is supplied as VM custom data. Changes to the cloud-init template or
+files it embeds can require Terraform to replace the VM; inspect the plan for
+replacement before applying.
 
-This is intentionally a **single VM**, **not highly available**, serves
-**plain HTTP**, has **no centralized monitoring**, **no load balancer**, and
-has **no automatic CI deployment**. It has no database or persistent app
-state. Run Command is an administrative command channel, not an interactive
-shell. A production service would normally add TLS, multiple instances across
-availability zones, managed identity only if the workload needs Azure API
-access, controlled rollout/rollback, centralized metrics/logs/alerts, and
-stronger state management. Those components are intentionally outside this
-small project.
+## Troubleshooting
+
+- **The health URL cannot be reached:** Confirm the VM is running, cloud-init
+  completed, the public IP is attached to the VM’s network interface, and the
+  network security group allows inbound TCP 8080. The service uses plain HTTP.
+- **The VM was just created:** Wait a few minutes for cloud-init, then check
+  the VM’s provisioning state and Boot diagnostics in the Azure portal.
+- **The endpoint still fails:** In the portal, open the VM’s **Operations → Run
+  command → RunShellScript** and check `systemctl status infrapulse`,
+  `systemctl status infrapulse-health.timer`,
+  `journalctl -u infrapulse --since "30 minutes ago"`, and
+  `ss -lntp`.
+- **Azure Run Command fails:** Check that the Azure VM Agent is running and the
+  VM has outbound HTTPS connectivity to Azure.
+- **A health check triggers a restart:** Check the service and health-check
+  logs with `journalctl -u infrapulse` and
+  `journalctl -u infrapulse-health`.
+- **Terraform reports existing resources or unexpected changes:** Confirm you
+  are in the directory that contains the matching Terraform state before
+  planning or applying. Do not delete or replace state to work around a
+  resource conflict.

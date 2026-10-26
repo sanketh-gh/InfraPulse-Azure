@@ -20,3 +20,4 @@ __pycache__/
 .ruff_cache/
 .venv/
 .DS_Store
+update_http_source_and_apply.sh

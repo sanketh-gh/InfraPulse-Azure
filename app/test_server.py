@@ -15,7 +15,11 @@ def request(path: str) -> tuple[int, str, str]:
         connection = HTTPConnection("127.0.0.1", server.server_port, timeout=2)
         connection.request("GET", path)
         response = connection.getresponse()
-        result = (response.status, response.getheader("Content-Type", ""), response.read().decode())
+        result = (
+            response.status,
+            response.getheader("Content-Type", ""),
+            response.read().decode(),
+        )
         connection.close()
         return result
     finally:
